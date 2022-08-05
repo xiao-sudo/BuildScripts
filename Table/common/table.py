@@ -99,15 +99,15 @@ class FieldType:
         self.object_type = ObjectType.from_str(self.field_type_str)
         self.elem_type = ElemType.from_str(self.field_type_str)
 
-    def __str__(self):
-        return self.field_type_str
+    def __repr__(self):
+        return 'FieldType(%r)' % self.field_type_str
 
 
 class Field:
-    def __init__(self, name):
+    def __init__(self, name, index=None, tag=None):
         self.field_type = None
-        self.index = None
-        self.tag = None
+        self.index = index
+        self.tag = tag
         self.name = name
 
     def set_index(self, index: int):
@@ -119,13 +119,35 @@ class Field:
     def set_field_tag(self, tag: Tag):
         self.tag = tag
 
-    def __str__(self):
-        return f'index : {self.index}, name: {self.name}, tag : {self.tag}, field type : {self.field_type}'
+    def __repr__(self):
+        return 'Field(%r, %r, %r)' % (self.name, self.index, self.tag)
+
+    def to_value(self, v):
+        if ObjectType.Primitive == self.field_type.object_type:
+            if ElemType.Int == self.field_type.elem_type:
+                return self._to_int(v)
+
+        return True, v, ''
+
+    @staticmethod
+    def _to_int(v):
+        rs = True
+        value = 0
+        err = ''
+        try:
+            value = int(v)
+        except ValueError as value_err:
+            rs = False
+            err = value_err
+
+        finally:
+            return rs, value, err
 
 
 class Header:
-    def __init__(self):
+    def __init__(self, name):
         self._fields = []
+        self.name = name
 
     def add_field(self, field: Field):
         self._fields.append(field)
@@ -145,6 +167,9 @@ class Header:
 
         return [tags, types, names]
 
+    def __repr__(self):
+        return 'Header(%r)' % self.name
+
 
 class Table:
     def __init__(self, name: str, xls: str):
@@ -152,9 +177,6 @@ class Table:
         self.name = name
         self.header = None
         self.rows = []
-
-        self._dialect = csv.unix_dialect
-        self._dialect.quoting = csv.QUOTE_MINIMAL
 
     def set_header(self, header: Header):
         self.header = header
@@ -164,8 +186,9 @@ class Table:
 
     def export_csv(self, csv_dir: str):
         target_csv_path = f"{csv_dir}/{self.name}.csv"
-        with open(target_csv_path, 'wt') as csv_file:
-            writer = csv.writer(csv_file, dialect=self._dialect)
+        with open(target_csv_path, 'wt', encoding='utf-8-sig') as csv_file:
+            writer = csv.writer(csv_file, delimiter=',', lineterminator='\n', quoting=csv.QUOTE_MINIMAL)
+            writer.writerow([self.xls, self.name])
             self.__export_header(writer)
             writer.writerows(self.rows)
 
