@@ -2,7 +2,7 @@ import glob
 import os.path
 import re
 from . import xlrd
-from .table import Table, Header, ObjectType, ElemType, FieldType
+from .table import Table, Tag, Header, Field, ElemType, FieldType
 
 
 def collect_xls_files(src_dir, xls_patterns):
@@ -22,6 +22,9 @@ def is_valid_xls_sheet(sheet_name):
 
 
 class XlsParser:
+    _tag_row = 2
+    _type_row = 3
+    _name_row = 4
 
     def __init__(self):
         self.tables = []
@@ -31,11 +34,38 @@ class XlsParser:
         book = xlrd.open_workbook(abs_xls)
         for sheet in book.sheets():
             if is_valid_xls_sheet(sheet.name):
-                tab = Table(sheet.name)
-                self.tables.append(f"{xls_path}->{sheet.name}")
+                tab = Table(sheet.name, xls_path)
+                rs, header = self._parse_header(sheet)
+
+                if rs:
+                    tab.set_header(header)
+                    self.tables.append(tab)
 
     def _parse_header(self, sheet):
-        pass
+        header = Header()
+        for col in range(sheet.ncols):
+            type_cell = sheet.cell(self._type_row, col)
+            type_value = type_cell.value.strip()
+
+            if '' != type_value:
+                name_cell = sheet.cell(self._name_row, col)
+                name_value = name_cell.value.strip()
+
+                if '' == name_value:
+                    return False, f'field name at ({self._name_row}, {col}) is Empty'
+
+                field = Field(name_value)
+                field.index = col
+                field.field_type = FieldType(type_cell.value)
+
+                if ElemType.Unknown == field.field_type.elem_type:
+                    return False, f'field element type at ({self._type_row}, {col}) is Known'
+
+                tag_cell = sheet.cell(self._tag_row, col)
+                field.tag = Tag.from_str(tag_cell.value)
+                header.add_field(field)
+
+        return True, header
 
     def _parse_rows(self, sheet):
         pass
