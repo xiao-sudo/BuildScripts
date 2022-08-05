@@ -25,6 +25,7 @@ class XlsParser:
     _tag_row = 2
     _type_row = 3
     _name_row = 4
+    _content_start_row = 8
 
     def __init__(self):
         self.tables = []
@@ -35,14 +36,17 @@ class XlsParser:
         for sheet in book.sheets():
             if is_valid_xls_sheet(sheet.name):
                 tab = Table(sheet.name, xls_path)
-                rs, header = self._parse_header(sheet)
+                rs, header_or_err = self._parse_header(sheet)
 
                 if rs:
-                    tab.set_header(header)
+                    tab.set_header(header_or_err)
+                    self._parse_rows(sheet, tab)
                     self.tables.append(tab)
+                else:
+                    print(f'{xls_path} : {sheet.name} parse error => {header_or_err}')
 
     def _parse_header(self, sheet):
-        header = Header()
+        header = Header(sheet.name)
         for col in range(sheet.ncols):
             type_cell = sheet.cell(self._type_row, col)
             type_value = type_cell.value.strip()
@@ -67,5 +71,17 @@ class XlsParser:
 
         return True, header
 
-    def _parse_rows(self, sheet):
-        pass
+    def _parse_rows(self, sheet, table):
+        fields = table.header.get_fields()
+        for row in range(self._content_start_row, sheet.nrows):
+            row_content = []
+            for field in fields:
+                content_cell = sheet.cell(row, field.index)
+                rs, value, err = field.to_value(content_cell.value)
+
+                if not rs:
+                    print(f'{table.xls} => {table.name}, ({row},{field.index}) to_value error : {err}')
+
+                row_content.append(value)
+
+            table.add_row(row_content)
