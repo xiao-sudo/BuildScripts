@@ -67,10 +67,16 @@ class ParseXlsStage(Stage):
         parser = xls.XlsParser()
         parser.parse(xls_file_path)
 
-        return parser.tables
+        if parser.tables:
+            return parser.tables
+        else:
+            return []
 
 
 class PrintStage(Stage):
     def execute(self, all_tables):
         for t in all_tables:
-            print(t)
+            print(f'table : {t.xls} => {t.name}')
+            header = t.header
+            for field in header.get_fields():
+                print(field)
