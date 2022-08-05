@@ -52,20 +52,24 @@ class ElemType(Enum):
     Int = 0
     Float = 1
     Str = 2
-    Unknown = 3
+    Bool = 3
+    Unknown = 4
 
     @staticmethod
     def from_str(type_str: str):
-        elem_type_str = type_str[:4]
+        elem_type_str = type_str[:3]
 
         if 'INT' == elem_type_str:
             return ElemType.Int
 
-        if 'FLT' == elem_type_str:
+        if 'FLO' == elem_type_str:
             return ElemType.Float
 
         if 'STR' == elem_type_str:
             return ElemType.Str
+
+        if 'BOO' == elem_type_str:
+            return ElemType.Bool
 
         return ElemType.Unknown
 
@@ -95,6 +99,9 @@ class FieldType:
         self.object_type = ObjectType.from_str(self.field_type_str)
         self.elem_type = ElemType.from_str(self.field_type_str)
 
+    def __str__(self):
+        return self.field_type_str
+
 
 class Field:
     def __init__(self, name):
@@ -112,9 +119,13 @@ class Field:
     def set_field_tag(self, tag: Tag):
         self.tag = tag
 
+    def __str__(self):
+        return f'index : {self.index}, name: {self.name}, tag : {self.tag}, field type : {self.field_type}'
+
 
 class Header:
-    _fields = []
+    def __init__(self):
+        self._fields = []
 
     def add_field(self, field: Field):
         self._fields.append(field)
@@ -136,9 +147,8 @@ class Header:
 
 
 class Table:
-    _dialect = None
-
-    def __init__(self, name):
+    def __init__(self, name: str, xls: str):
+        self.xls = xls
         self.name = name
         self.header = None
         self.rows = []
