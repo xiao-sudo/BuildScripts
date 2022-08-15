@@ -1,4 +1,5 @@
 from . import stage
+from . import table
 
 
 class Pipeline:
@@ -19,6 +20,19 @@ class Pipeline:
 def new_pipeline():
     pipeline_instance = Pipeline("common pipeline")
     pipeline_instance.add_stage(stage.CollectXlsStage("Collect Xls", ["*.xlsx", "*.xlsm"]))
-    pipeline_instance.add_stage(stage.ParseXlsStage("Xls To Csv"))
-    pipeline_instance.add_stage(stage.PrintStage("Print Table"))
+    pipeline_instance.add_stage(stage.ParseXlsStage("Xls To Table"))
+    pipeline_instance.add_stage(stage.MultipleExportStage('Table to CSV', [
+        {'name': 'Client', 'out_dir': './client', 'tag_filter': _client_tag_filter},
+        {'name': 'Server', 'out_dir': './server', 'tag_filter': _server_tag_filter}
+    ]))
+    # pipeline_instance.add_stage(stage.ExportStage("Server CSV", '.', _server_tag_filter))
+    # pipeline_instance.add_stage(stage.PrintStage("Print Table"))
     return pipeline_instance
+
+
+def _server_tag_filter(tag):
+    return tag == table.Tag.Server or tag == table.Tag.CS
+
+
+def _client_tag_filter(tag):
+    return tag == table.Tag.Client or tag == table.Tag.CS

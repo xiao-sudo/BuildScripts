@@ -47,6 +47,7 @@ class XlsParser:
 
     def _parse_header(self, sheet):
         header = Header(sheet.name)
+        curr_index = 0
         for col in range(sheet.ncols):
             type_cell = sheet.cell(self._type_row, col)
             type_value = type_cell.value.strip()
@@ -59,7 +60,7 @@ class XlsParser:
                     return False, f'field name at ({self._name_row}, {col}) is Empty'
 
                 field = Field(name_value)
-                field.index = col
+                field.col = col
                 field.field_type = FieldType(type_cell.value)
 
                 if ElemType.Unknown == field.field_type.elem_type:
@@ -67,6 +68,8 @@ class XlsParser:
 
                 tag_cell = sheet.cell(self._tag_row, col)
                 field.tag = Tag.from_str(tag_cell.value)
+                field.field_index = curr_index
+                curr_index = curr_index + 1
                 header.add_field(field)
 
         return True, header
@@ -76,11 +79,11 @@ class XlsParser:
         for row in range(self._content_start_row, sheet.nrows):
             row_content = []
             for field in fields:
-                content_cell = sheet.cell(row, field.index)
+                content_cell = sheet.cell(row, field.col)
                 rs, value, err = field.to_value(content_cell.value)
 
                 if not rs:
-                    print(f'{table.xls} => {table.name}, ({row},{field.index}) to_value error : {err}')
+                    print(f'{table.xls} => {table.name}, ({row},{field.col}) to_value error : {err}')
 
                 row_content.append(value)
 
