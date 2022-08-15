@@ -2,7 +2,6 @@ import argparse
 import glob
 import os
 import sys
-import threading
 from pathlib import Path
 
 # current dir
@@ -47,10 +46,8 @@ def dispatch(src_lua_pairs, dest_sub_dir, build_func):
 
 
 def dispatch_all(src_lua_pairs, dest_dir):
-    t1 = threading.Thread(target=dispatch_64, args=(src_lua_pairs, dest_dir))
-    t2 = threading.Thread(target=dispatch_32, args=(src_lua_pairs, dest_dir))
-    t1.start()
-    t2.start()
+    dispatch_64(src_lua_pairs, dest_dir)
+    dispatch_32(src_lua_pairs, dest_dir)
 
 
 def dispatch_build(platform, src_dir, dest_dir):
