@@ -1,4 +1,5 @@
 from .data import DataType
+from .elem import ElemAnalyzer
 
 
 class Field:
@@ -16,3 +17,7 @@ class Field:
 
     def update_field_index(self, new_index: int):
         self.field_index = new_index
+
+    def check_text(self, text: str):
+        checker = ElemAnalyzer.get_checker(self.data_type.elem_type, self.data_type.organization)
+        return checker(text)
