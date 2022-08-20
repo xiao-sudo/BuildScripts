@@ -2,7 +2,17 @@ import glob
 import os.path
 import re
 from . import xlrd
-from .table import Table, Tag, Header, Field, ElemType, FieldType
+from .table import Table, Tag, Header
+from .data import DataType
+from .field import Field
+from .setting import TagFilterSetting
+
+from typing import List
+from typing import Dict
+
+TagFilterSettingList = List[TagFilterSetting]
+TableList = List[Table]
+TableDict = Dict[Tag, TableList]
 
 
 def collect_xls_files(src_dir, xls_patterns):
@@ -22,65 +32,95 @@ def is_valid_xls_sheet(sheet_name):
 
 
 class XlsParser:
-    _tag_row = 2
-    _type_row = 3
-    _name_row = 4
-    _content_start_row = 8
+    TagRow = 2
+    DataTypeRow = 3
+    FieldNameRow = 4
+    ContentStartRow = 8
 
     def __init__(self):
         self.tables = []
 
-    def parse(self, xls_path):
+    def parse_one_table(self, xls_path, table_name):
+        abs_xls = os.path.abspath(xls_path)
+        rs = True
+        table_or_err = None
+
+        try:
+            book = xlrd.open_workbook(abs_xls)
+            sheet = book.sheet_by_name(table_name)
+            rs, table_or_err = self.parse_xls_sheet(sheet)
+        except Exception as err:
+            rs = False
+            table_or_err = err
+        finally:
+            return rs, table_or_err
+
+    def parse(self, xls_path) -> TableList:
+
         abs_xls = os.path.abspath(xls_path)
         book = xlrd.open_workbook(abs_xls)
         for sheet in book.sheets():
             if is_valid_xls_sheet(sheet.name):
-                tab = Table(sheet.name, xls_path)
                 rs, header_or_err = self._parse_header(sheet)
 
                 if rs:
+                    tab = Table(sheet.name, xls_path)
                     tab.set_header(header_or_err)
-                    self._parse_rows(sheet, tab)
                     self.tables.append(tab)
                 else:
                     print(f'{xls_path} : {sheet.name} parse error => {header_or_err}')
+
+        return self.tables
+
+    def parse_xls_sheet(self, sheet):
+        if is_valid_xls_sheet(sheet.name):
+            rs, header_or_err = self._parse_header(sheet)
+            # TODO : parse header and parse Body
+
+        else:
+            return [False, f'{sheet.name} is not a valid export sheet name']
 
     def _parse_header(self, sheet):
         header = Header(sheet.name)
         curr_index = 0
         for col in range(sheet.ncols):
-            type_cell = sheet.cell(self._type_row, col)
-            type_value = type_cell.value.strip()
 
-            if '' != type_value:
-                name_cell = sheet.cell(self._name_row, col)
+            tag_cell = sheet.cell(self.TagRow, col)
+            tag_str = tag_cell.value.strip()
+
+            if '' != tag_str:
+                name_cell = sheet.cell(self.FieldNameRow, col)
                 name_value = name_cell.value.strip()
 
                 if '' == name_value:
-                    return False, f'field name at ({self._name_row}, {col}) is Empty'
+                    return False, f'field name at ({self.FieldNameRow}, {col}) is Empty'
 
-                field = Field(name_value)
-                field.col = col
-                field.field_type = FieldType(type_cell.value)
+                type_cell = sheet.cell(self.DataTypeRow, col)
+                type_str = type_cell.value.strip()
+                data_type = DataType.parse(type_str)
 
-                if ElemType.Unknown == field.field_type.elem_type:
-                    return False, f'field element type at ({self._type_row}, {col}) is Known'
+                if data_type is None:
+                    return False, f'type {type_str} is invalid'
 
-                tag_cell = sheet.cell(self._tag_row, col)
-                field.tag = Tag.from_str(tag_cell.value)
-                field.field_index = curr_index
-                curr_index = curr_index + 1
+                tag = Tag.from_str(tag_str)
+
+                if tag is None:
+                    return False, f'tag {tag} is invalid'
+
+                field = Field(tag, name_value, col, curr_index, data_type)
+                curr_index += 1
+
                 header.add_field(field)
 
         return True, header
 
     def _parse_rows(self, sheet, table):
         fields = table.header.get_fields()
-        for row in range(self._content_start_row, sheet.nrows):
+        for row in range(self.ContentStartRow, sheet.nrows):
             row_content = []
             for field in fields:
-                content_cell = sheet.cell(row, field.col)
-                rs, value, err = field.to_value(content_cell.value)
+                content_cell = sheet.cell(row, field.sheet_col)
+                rs, value, err = field.parse_text_to_value(content_cell.value)
 
                 if not rs:
                     print(f'{table.xls} => {table.name}, ({row},{field.col}) to_value error : {err}')

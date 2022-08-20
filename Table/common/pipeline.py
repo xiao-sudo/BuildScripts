@@ -1,5 +1,5 @@
 from . import stage
-from . import table
+from .table import Tag
 
 
 class Pipeline:
@@ -21,18 +21,18 @@ def new_pipeline():
     pipeline_instance = Pipeline("common pipeline")
     pipeline_instance.add_stage(stage.CollectXlsStage("Collect Xls", ["*.xlsx", "*.xlsm"]))
     pipeline_instance.add_stage(stage.ParseXlsStage("Xls To Table"))
-    pipeline_instance.add_stage(stage.MultipleExportStage('Table to CSV', [
-        {'name': 'Client', 'out_dir': './client', 'tag_filter': _client_tag_filter},
-        {'name': 'Server', 'out_dir': './server', 'tag_filter': _server_tag_filter}
-    ]))
-    # pipeline_instance.add_stage(stage.ExportStage("Server CSV", '.', _server_tag_filter))
-    # pipeline_instance.add_stage(stage.PrintStage("Print Table"))
+    pipeline_instance.add_stage(stage.CSVExportStage("CSV Export", "./"))
+    # pipeline_instance.add_stage(stage.MultipleExportStage('Table to CSV', [
+    #     stage.CSVExportSetting('Client', './client', Tag.Client, _tag_compatible),
+    #     stage.CSVExportSetting('Server', './server', Tag.Server, _tag_compatible)
+    # ]))
+    # pipeline_instance.add_stage(stage.GenProtoStage('Proto Gen'))
     return pipeline_instance
 
 
-def _server_tag_filter(tag):
-    return tag == table.Tag.Server or tag == table.Tag.CS
+def _tag_compatible(target_tag, input_tag):
+    return target_tag & input_tag
 
 
-def _client_tag_filter(tag):
-    return tag == table.Tag.Client or tag == table.Tag.CS
+def _tag_exact_match(target_tag, input_tag):
+    return target_tag == input_tag
