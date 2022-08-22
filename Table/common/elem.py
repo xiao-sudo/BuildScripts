@@ -198,11 +198,11 @@ class ElemOrganizationParser:
 class ElemAnalyzer:
     # +-0 | +-[1-9]\d*
     IntPattern = r'[+-]?(0|[1-9]\d*)'
-    # [Int(,Int)*]
-    IntArrayPattern = fr'^\[(\s*{IntPattern}\s*(,\s*{IntPattern}\s*)*\s*)]$'
+    # [(Int(,Int)*)*]
+    IntArrayPattern = fr'^\[(\s*{IntPattern}\s*(,\s*{IntPattern}\s*)*\s*)?]$'
     QuotedStr = r'\".*"'
-    # [quoted_str(,quoted_str)*]
-    QuotedStrArrayPattern = rf'^\[(\s*{QuotedStr}\s*(,\s*{QuotedStr})*\s*)]$'
+    # [(quoted_str(,quoted_str)*)*]
+    QuotedStrArrayPattern = rf'^\[(\s*{QuotedStr}\s*(,\s*{QuotedStr})*\s*)?]$'
     # , must between " and "
     QuotedStrSepPattern = r"(?<=\")\s*,\s*(?=\")"
 
@@ -251,10 +251,10 @@ class ElemAnalyzer:
 
     Tools = {
         'checker': {
-            ElemType.Int: is_int,
+            ElemType.Int: lambda text: ElemAnalyzer.is_int(text),
             ElemType.Str: lambda text: True,
-            ElemType.IntArray: is_int_array,
-            ElemType.StrArray: is_str_array
+            ElemType.IntArray: lambda text: ElemAnalyzer.is_int_array(text),
+            ElemType.StrArray: lambda text: ElemAnalyzer.is_str_array(text)
         },
         'disassembler': {
             ElemType.Int: pass_to_elem_checker,
@@ -266,20 +266,20 @@ class ElemAnalyzer:
 
     @staticmethod
     def to_elem_type(elem_class: ElemClass, elem_organ: ElemOrganization):
-        if elem_organ is TabPrimitive:
-            if elem_class is IntElemClass:
+        if isinstance(elem_organ, TabPrimitive):
+            if isinstance(elem_class, IntElemClass):
                 return ElemAnalyzer.ElemType.Int
             else:
                 return ElemAnalyzer.ElemType.Str
         else:
-            if elem_class is IntElemClass:
+            if isinstance(elem_class, IntElemClass):
                 return ElemAnalyzer.ElemType.IntArray
             else:
                 return ElemAnalyzer.ElemType.StrArray
 
     @staticmethod
-    def get_disassembler(elem_class: ElemClass, elem_organ: ElemOrganization):
-        elem_type = ElemAnalyzer.to_elem_type(elem_class, elem_organ)
+    def get_disassembler(data_type):
+        elem_type = ElemAnalyzer.to_elem_type(data_type.elem_type, data_type.organization)
 
         if elem_type is not None:
             return ElemAnalyzer.Tools.get('disassembler').get(elem_type)
@@ -287,8 +287,8 @@ class ElemAnalyzer:
         return None
 
     @staticmethod
-    def get_checker(elem_class: ElemClass, elem_organ: ElemOrganization):
-        elem_type = ElemAnalyzer.to_elem_type(elem_class, elem_organ)
+    def get_checker(data_type):
+        elem_type = ElemAnalyzer.to_elem_type(data_type.elem_type, data_type.organization)
 
         if elem_type is not None:
             return ElemAnalyzer.Tools.get('checker').get(elem_type)
