@@ -2,20 +2,11 @@ import time
 import os
 
 from . import xls
-from .setting import TagFilterSetting
 from .table import Table, TableDataUtil
 from .log import info_log
-from .tag import Tag
 from .log import debug_log
 from multiprocessing import cpu_count
 from multiprocessing import Pool
-
-from typing import List
-from typing import Dict
-
-TagFilterSettingList = List[TagFilterSetting]
-TableList = List[Table]
-TableDict = Dict[Tag, TableList]
 
 
 class Stage:
@@ -47,17 +38,17 @@ class ParseSingleSheetStage(Stage):
         """
         parse a xls sheet
         :param single_xls_list: list only have single xls path
-        :return: parsed single sheet table list
+        :return: parsed single sheet table list, elem [bool, table_or_err]
         """
         if len(single_xls_list) > 0:
             parser = xls.XlsParser()
             xls_path = single_xls_list[0]
             rs, table_or_err = parser.parse_one_sheet(xls_path, self.sheet_name)
             if rs:
-                return [table_or_err]
+                return [[True, table_or_err]]
             else:
                 debug_log(f'parse single sheet failed, {table_or_err}')
-                return []
+                return [[False, table_or_err]]
         else:
             return []
 
@@ -81,14 +72,23 @@ class ParseXlsStage(Stage):
         super().__init__(name)
         self._tables = []
 
-    def execute(self, xls_list) -> TableList:
+    def execute(self, xls_list) -> list:
         """
         Parse xls file sheet to Table
         :param xls_list: input xls files' path
-        :return: all Tables
+        :return: all Tables list of [bool, table_or_err]
         """
         start_time = time.time()
-        parsed_tables = self._multi_process_parse_xls_files(xls_list)
+        parsed_tables = []
+
+        xls_list_len = len(xls_list)
+
+        if xls_list_len > 1:
+            parsed_tables = self._multi_process_parse_xls_files(xls_list)
+        elif 1 == xls_list_len:
+            single_xls_path = xls_list[0]
+            parsed_tables = self.parse_one_xls(single_xls_path)
+
         info_log(f'parse all xls elapse {time.time() - start_time} seconds')
         return parsed_tables
 
@@ -114,29 +114,6 @@ class ParseXlsStage(Stage):
     def parse_one_xls(xls_file_path: str) -> list:
         parser = xls.XlsParser()
         return parser.parse_one_xls(xls_file_path)
-
-
-class FilterStage(Stage):
-    def __init__(self, name, tag_filter_settings: TagFilterSettingList):
-        super().__init__(name)
-        self.tag_filter_settings = tag_filter_settings
-
-    def execute(self, all_parsed_tables: TableList) -> TableDict:
-        filtered_tables = TableDict()
-
-        for setting in self.tag_filter_settings:
-            filtered_tables[setting.target_tag] = TableList()
-
-        for table in all_parsed_tables:
-            for setting in self.tag_filter_settings:
-                filtered_tab = self._filter_table(table, setting)
-                if filtered_tab is not None:
-                    filtered_tables[setting.target_tag].append(filtered_tab)
-
-        return filtered_tables
-
-    def _filter_table(self, table: Table, setting: TagFilterSetting) -> Table:
-        pass
 
 
 class CSVExportStage(Stage):
@@ -177,8 +154,13 @@ class PrintTableStage(Stage):
         return all_tables
 
     @staticmethod
-    def _format_print_table(table: Table):
-        info_log(f'Table ({table.xls} => {table.name})')
-        csv_info = TableDataUtil.to_csv(table)
-        for row in csv_info:
-            info_log(f'\t{row}')
+    def _format_print_table(table_result):
+        rs, table_or_err = table_result
+        if rs:
+            info_log(f'Table ({table_or_err.xls} => {table_or_err.name})')
+            csv_info = TableDataUtil.to_csv(table_or_err)
+            for row in csv_info:
+                info_log(f'\t{row}')
+
+        else:
+            info_log(table_or_err)
