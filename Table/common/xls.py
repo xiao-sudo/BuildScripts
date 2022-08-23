@@ -9,7 +9,7 @@ from .data import DataType
 from .field import Field
 from .setting import TagFilterSetting
 from .elem import ElemAnalyzer
-from .cell_util import cell_str
+from .cell_util import cell_str, cell_xls_coord_str
 from .tag import Tag
 
 from typing import List
@@ -127,20 +127,21 @@ class XlsParser:
             tag_str = cell_str(sheet, self.TagRow, col).strip()
 
             if not tag_str:
-                return [XlsParser.FieldState.Error, f'sheet {sheet.name} Tag at ({self.TagRow},{col}) '
+                return [XlsParser.FieldState.Error, f'sheet {sheet.name} Tag at {cell_xls_coord_str(self.TagRow, col)} '
                                                     f'{tag_str} Tag is empty']
 
             tag = Tag.from_str(tag_str)
             if tag is None:
-                return [XlsParser.FieldState.Error, f'sheet {sheet.name} Tag at ({self.TagRow},{col}) '
+                return [XlsParser.FieldState.Error, f'sheet {sheet.name} Tag at {cell_xls_coord_str(self.TagRow, col)} '
                                                     f'{tag_str} is invalid']
 
             data_type_str = cell_str(sheet, self.DataTypeRow, col).strip()
             data_type = DataType.parse(data_type_str)
 
             if data_type is None:
-                return [XlsParser.FieldState.Error, f'sheet {sheet.name} Type at ({self.DataTypeRow},{col}), '
-                                                    f'{data_type_str} is invalid']
+                return [XlsParser.FieldState.Error,
+                        f'sheet {sheet.name} Type at {cell_xls_coord_str(self.DataTypeRow, col)} '
+                        f'{data_type_str} is invalid']
 
             field = Field(tag, field_name_str, col, data_type, 0 == col)
             return [XlsParser.FieldState.OK, field]
@@ -173,7 +174,7 @@ class XlsParser:
         if rs:
             body_row.append(primary_str)
         else:
-            return [False, f'{primary.field_name} at ({row},{primary.sheet_col}) value {primary_str} '
+            return [False, f'{primary.field_name} at {cell_xls_coord_str(row, primary.sheet_col)} value {primary_str} '
                            f'is not {primary.data_type.to_client_csv_str()}']
 
         for field in fields[1:]:
@@ -183,7 +184,7 @@ class XlsParser:
             if rs:
                 body_row.append(value_or_err)
             else:
-                return [False, f'{field.field_name} at ({row},{field.sheet_col}) value {value_str} '
+                return [False, f'{field.field_name} at {cell_xls_coord_str(row, field.sheet_col)} value {value_str} '
                                f'is not {field.data_type.to_client_csv_str()}']
 
         return [True, body_row]

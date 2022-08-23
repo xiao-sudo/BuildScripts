@@ -6,3 +6,13 @@ def cell_str(sheet, cell_row, cell_col):
         v = int(v)
 
     return str(v)
+
+
+def cell_xls_coord_str(row, col):
+    """
+    return cell coordinate str by zero based row and col
+    :param row: zero based row number
+    :param col: zero based col number
+    :return: cell coordinate str
+    """
+    return f'({row + 1},{col + 1})'
