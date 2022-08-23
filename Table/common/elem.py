@@ -2,15 +2,13 @@ import re
 from enum import IntEnum
 
 from .converter import TextConverter, DefaultValueConverter, TextToValueConverter
+from .log import debug_log
 
 TAB_INT_IDENTIFIER = 'INT'
-TAB_SINT_IDENTIFIER = 'SINT'
-TAB_FIXED_IDENTIFIER = 'FIXED'
-TAB_FLOAT_IDENTIFIER = 'FLOAT'
 TAB_STRING_IDENTIFIER = 'STRING'
-TAB_BOOL_IDENTIFIER = 'BOOL'
 
 TAB_ARRAY_IDENTIFIER = '[]'
+TAB_2D_ARRAY_IDENTIFIER = '[][]'
 TAB_PRIMITIVE_IDENTIFIER = ''
 
 
@@ -21,10 +19,6 @@ class ElemClass(TextConverter, DefaultValueConverter, TextToValueConverter):
     @staticmethod
     def to_int_identifier():
         return TAB_INT_IDENTIFIER
-
-    @staticmethod
-    def to_float_identifier():
-        return TAB_FLOAT_IDENTIFIER
 
     @staticmethod
     def zero_value():
@@ -59,48 +53,6 @@ class IntElemClass(ElemClass):
                 return rs, value_or_err
 
 
-class SIntElemClass(ElemClass):
-    def to_client_csv_str(self):
-        return TAB_SINT_IDENTIFIER
-
-    def to_server_csv_str(self):
-        return ElemClass.to_int_identifier()
-
-    def to_proto_str(self):
-        return 'sint32'
-
-    def default_value(self):
-        return ElemClass.zero_value()
-
-
-class FixedIntElemClass(ElemClass):
-    def to_client_csv_str(self):
-        return TAB_FIXED_IDENTIFIER
-
-    def to_server_csv_str(self):
-        return ElemClass.to_int_identifier()
-
-    def to_proto_str(self):
-        return 'fixed32'
-
-    def default_value(self):
-        return ElemClass.zero_value()
-
-
-class FloatElemClass(ElemClass):
-    def to_client_csv_str(self):
-        return ElemClass.to_float_identifier()
-
-    def to_server_csv_str(self):
-        return ElemClass.to_float_identifier()
-
-    def to_proto_str(self):
-        return 'float'
-
-    def default_value(self):
-        ElemClass.zero_value()
-
-
 class StrElemClass(ElemClass):
     def to_client_csv_str(self):
         return TAB_STRING_IDENTIFIER
@@ -121,30 +73,12 @@ class StrElemClass(ElemClass):
             return True, text
 
 
-class BoolElemClass(ElemClass):
-    def to_client_csv_str(self):
-        return TAB_BOOL_IDENTIFIER
-
-    def to_server_csv_str(self):
-        return TAB_BOOL_IDENTIFIER
-
-    def to_proto_str(self):
-        return 'bool'
-
-    def default_value(self):
-        return False
-
-
 class ElemClassParser:
     @staticmethod
     def parse(elem_type_str: str):
         return {
             TAB_INT_IDENTIFIER: IntElemClass,
-            TAB_SINT_IDENTIFIER: SIntElemClass,
-            TAB_FIXED_IDENTIFIER: FixedIntElemClass,
             TAB_STRING_IDENTIFIER: StrElemClass,
-            TAB_FLOAT_IDENTIFIER: FloatElemClass,
-            TAB_BOOL_IDENTIFIER: BoolElemClass
         }.get(elem_type_str, lambda: None)()
 
 
@@ -191,34 +125,48 @@ class ElemOrganizationParser:
     def parse(organization_str: str):
         return {
             TAB_PRIMITIVE_IDENTIFIER: TabPrimitive,
-            TAB_ARRAY_IDENTIFIER: TabArray
+            TAB_ARRAY_IDENTIFIER: TabArray,
+            TAB_2D_ARRAY_IDENTIFIER: Tab2DArray
         }.get(organization_str, lambda: None)()
 
 
 class ElemAnalyzer:
     # +-0 | +-[1-9]\d*
     IntPattern = r'[+-]?(0|[1-9]\d*)'
-    # [(Int(,Int)*)*]
-    IntArrayPattern = fr'^\[(\s*{IntPattern}\s*(,\s*{IntPattern}\s*)*\s*)?]$'
+    # [(Int(,Int)*)?]
+    IntArrayPattern = fr'\[\s*(\s*{IntPattern}\s*(,\s*{IntPattern}\s*)*\s*)?]'
+    # [()]
+    Int2DArrayPattern = fr'\[(\s*{IntArrayPattern}\s*(,\s*{IntArrayPattern}\s*)*\s*)?]'
     QuotedStr = r'\".*"'
     # [(quoted_str(,quoted_str)*)*]
-    QuotedStrArrayPattern = rf'^\[(\s*{QuotedStr}\s*(,\s*{QuotedStr})*\s*)?]$'
-    # , must between " and "
+    QuotedStrArrayPattern = rf'\[\s*(\s*{QuotedStr}\s*(,\s*{QuotedStr})*\s*)?]'
+    QuotedStr2DArrayPattern = rf'\[\s*({QuotedStrArrayPattern}\s*(,\s*{QuotedStrArrayPattern})*\s*)?]'
+    # use , separate str array; , must between prev right \" and next left \"
     QuotedStrSepPattern = r"(?<=\")\s*,\s*(?=\")"
 
     @staticmethod
     def is_int_array(text: str):
-        m = re.match(ElemAnalyzer.IntArrayPattern, text)
+        m = re.match(f'^{ElemAnalyzer.IntArrayPattern}$', text)
         return m is not None
 
     @staticmethod
     def is_str_array(text: str):
-        m = re.match(ElemAnalyzer.QuotedStrArrayPattern, text)
+        m = re.match(f'^{ElemAnalyzer.QuotedStrArrayPattern}$', text)
         return m is not None
 
     @staticmethod
     def is_int(text: str):
         m = re.match(rf'^{ElemAnalyzer.IntPattern}$', text)
+        return m is not None
+
+    @staticmethod
+    def is_int_2d_array(text: str):
+        m = re.match(rf'^{ElemAnalyzer.Int2DArrayPattern}$', text)
+        return m is not None
+
+    @staticmethod
+    def is_str_2d_array(text: str):
+        m = re.match(rf'^{ElemAnalyzer.QuotedStr2DArrayPattern}$', text)
         return m is not None
 
     @staticmethod
@@ -254,7 +202,9 @@ class ElemAnalyzer:
             ElemType.Int: lambda text: ElemAnalyzer.is_int(text),
             ElemType.Str: lambda text: True,
             ElemType.IntArray: lambda text: ElemAnalyzer.is_int_array(text),
-            ElemType.StrArray: lambda text: ElemAnalyzer.is_str_array(text)
+            ElemType.StrArray: lambda text: ElemAnalyzer.is_str_array(text),
+            ElemType.Int2DArray: lambda text: ElemAnalyzer.is_int_2d_array(text),
+            ElemType.Str2DArray: lambda text: ElemAnalyzer.is_str_2d_array(text)
         },
         'disassembler': {
             ElemType.Int: pass_to_elem_checker,
@@ -269,13 +219,30 @@ class ElemAnalyzer:
         if isinstance(elem_organ, TabPrimitive):
             if isinstance(elem_class, IntElemClass):
                 return ElemAnalyzer.ElemType.Int
-            else:
+            elif isinstance(elem_class, StrElemClass):
                 return ElemAnalyzer.ElemType.Str
-        else:
+            else:
+                debug_log(f'Unknown Primitive Type {elem_class}')
+                return None
+        elif isinstance(elem_organ, TabArray):
             if isinstance(elem_class, IntElemClass):
                 return ElemAnalyzer.ElemType.IntArray
-            else:
+            elif isinstance(elem_class, StrElemClass):
                 return ElemAnalyzer.ElemType.StrArray
+            else:
+                debug_log(f'Unsupported Primitive Type {elem_class} in Array')
+                return None
+        elif isinstance(elem_organ, Tab2DArray):
+            if isinstance(elem_class, IntElemClass):
+                return ElemAnalyzer.ElemType.Int2DArray
+            elif isinstance(elem_class, StrElemClass):
+                return ElemAnalyzer.ElemType.Str2DArray
+            else:
+                debug_log(f'Unsupported Primitive Type {elem_class} in 2D Array')
+
+        else:
+            debug_log(f'Unknown Organization Type {elem_organ}')
+            return None
 
     @staticmethod
     def get_disassembler(data_type):
