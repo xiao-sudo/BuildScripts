@@ -2,7 +2,7 @@ import time
 import os
 
 from . import xls
-from .table import Table, TableDataUtil
+from .table import TableDataUtil
 from .log import info_log
 from .log import debug_log
 from multiprocessing import cpu_count
@@ -125,11 +125,17 @@ class CSVExportStage(Stage):
         super().__init__(name)
         self.out_dir = out_dir
 
-    def execute(self, all_tables):
-        for table in all_tables:
-            TableDataUtil.export_csv(f'{self.out_dir}/{table.name}.csv', table)
+    def execute(self, all_table_results):
+        tables = []
+        for table_rs in all_table_results:
+            rs, table_or_err = table_rs
+            if rs:
+                tables.append(table_or_err)
+                TableDataUtil.export_csv(f'{self.out_dir}/{table_or_err.name}.csv', table_or_err)
+            else:
+                debug_log(table_or_err)
 
-        return all_tables
+        return tables
 
 
 class GenProtoStage(Stage):
@@ -146,21 +152,26 @@ class GenProtoStage(Stage):
                     print(f'{field.data_type.to_client_csv_str()}')
 
 
+def _format_print_table(table):
+    csv_info = TableDataUtil.to_csv(table)
+    info_log(f'Table ({table.xls} => {table.name})')
+    for row in csv_info:
+        info_log(f'\t{row}')
+
+
+class PrintParsedResultTableStage(Stage):
+    def execute(self, parsed_tables):
+        for parsed_tab in parsed_tables:
+            rs, tab_or_err = parsed_tab
+            if rs:
+                _format_print_table(tab_or_err)
+            else:
+                info_log(tab_or_err)
+
+        return parsed_tables
+
+
 class PrintTableStage(Stage):
     def execute(self, all_tables):
         for t in all_tables:
-            PrintTableStage._format_print_table(t)
-
-        return all_tables
-
-    @staticmethod
-    def _format_print_table(table_result):
-        rs, table_or_err = table_result
-        if rs:
-            info_log(f'Table ({table_or_err.xls} => {table_or_err.name})')
-            csv_info = TableDataUtil.to_csv(table_or_err)
-            for row in csv_info:
-                info_log(f'\t{row}')
-
-        else:
-            info_log(table_or_err)
+            _format_print_table(t)
