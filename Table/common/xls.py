@@ -1,11 +1,16 @@
 import glob
 import os.path
 import re
+
+from enum import IntEnum
 from . import xlrd
-from .table import Table, Tag, Header
+from .table import Table, Header
 from .data import DataType
 from .field import Field
 from .setting import TagFilterSetting
+from .elem import ElemAnalyzer
+from .cell_util import cell_str
+from .tag import Tag
 
 from typing import List
 from typing import Dict
@@ -37,10 +42,15 @@ class XlsParser:
     FieldNameRow = 4
     ContentStartRow = 8
 
-    def __init__(self):
-        self.tables = []
+    class FieldState(IntEnum):
+        OK = 0,
+        FieldTypeEmpty = 1,
+        Error = 2
 
-    def parse_one_table(self, xls_path, table_name):
+    def parse_one_sheet(self, xls_path, table_name):
+        if not is_valid_xls_sheet(table_name):
+            return [False, f'{table_name} is not a valid export table name']
+
         abs_xls = os.path.abspath(xls_path)
         rs = True
         table_or_err = None
@@ -55,85 +65,133 @@ class XlsParser:
         finally:
             return rs, table_or_err
 
-    def parse(self, xls_path) -> TableList:
-
+    def parse_one_xls(self, xls_path) -> list:
         abs_xls = os.path.abspath(xls_path)
         book = xlrd.open_workbook(abs_xls)
+        xls_tables = []
         for sheet in book.sheets():
             if is_valid_xls_sheet(sheet.name):
-                rs, header_or_err = self._parse_header(sheet)
+                rs, table_or_err = self.parse_xls_sheet(xls_path, sheet)
+                xls_tables.append([rs, table_or_err])
 
-                if rs:
-                    tab = Table(sheet.name, xls_path)
-                    tab.set_header(header_or_err)
-                    self.tables.append(tab)
-                else:
-                    print(f'{xls_path} : {sheet.name} parse error => {header_or_err}')
-
-        return self.tables
+        return xls_tables
 
     def parse_xls_sheet(self, xls_path, sheet):
-        if is_valid_xls_sheet(sheet.name):
-            rs, header_or_err = self._parse_header(sheet)
+        rs, header_or_err = self._parse_header(sheet)
 
-            if rs:
-                if len(header_or_err.get_fields()) > 0:
-                    tab = Table(sheet.name, xls_path)
-                    tab.set_header(header_or_err)
-                    # TODO : parse body
+        if rs:
+            if len(header_or_err.get_fields()) > 0:
+                tab = Table(sheet.name, xls_path)
+                tab.set_header(header_or_err)
+                rs, body_or_err = self._parse_body(sheet, tab.header.get_fields())
+
+                if rs:
+                    tab.set_body(body_or_err)
+                    return [True, tab]
                 else:
-                    return [False, f'{sheet.name} has no valid export field']
+                    return [False, f'{xls_path}, {body_or_err}']
             else:
-                return [False, header_or_err]
-
+                return [False, f'{xls_path}, {sheet.name} has no valid export field']
         else:
-            return [False, f'{sheet.name} is not a valid export sheet name']
+            return [False, f'{xls_path}, {header_or_err}']
 
     def _parse_header(self, sheet):
+        if 0 == sheet.ncols:
+            return [False, f'sheet {sheet.name} is empty']
 
-        curr_index = 0
         header = Header(sheet.name)
 
-        for col in range(sheet.ncols):
-            field_name_str = sheet.cell(self.FieldNameRow, col).value.strip()
+        # first col is primary field
+        rs, primary_field_or_err = self._parse_field(0, sheet)
 
-            if field_name_str:
-                tag_str = sheet.cell(self.TagRow, col).value.strip()
+        if rs is not XlsParser.FieldState.OK:
+            return [False, f'primary field error, {primary_field_or_err}']
 
-                if not tag_str:
-                    return [False, f'Column {col} Tag is empty']
+        header.add_field(primary_field_or_err)
 
-                tag = Tag.from_str(tag_str)
-                if tag is None:
-                    return [False, f'Tag {tag_str} is invalid']
+        for col in range(1, sheet.ncols):
+            rs, field_or_err = self._parse_field(col, sheet)
 
-                data_type_str = sheet.cell(self.DataTypeRow, col).value.strip()
-                data_type = DataType.parse(data_type_str)
-
-                if data_type is None:
-                    return [False, f'Type {data_type_str} is invalid']
-
-                field = Field(tag, field_name_str, col, curr_index, data_type, 0 == curr_index)
-                header.add_field(field)
-                curr_index += 1
+            if rs is XlsParser.FieldState.OK:
+                header.add_field(field_or_err)
+            elif rs is XlsParser.FieldState.Error:
+                return [False, field_or_err]
 
         return [True, header]
 
-    # def _parse_rows(self, sheet, table):
-    # fields = table.header.get_fields()
-    # for row in range(self.ContentStartRow, sheet.nrows):
-    #     row_content = []
-    #     for field in fields:
-    #         primary = field.primary
-    #         content_str = sheet.cell(row, field.sheet_col).value.strip()
-    #         rs = field.check_text(content_str)
-    #
-    #         if not rs:
-    #             print(f'{table.xls} => {table.name}, ({row},{field.col}) to_value error : {err}')
-    #
-    #         row_content.append(content_str)
-    #
-    #     table.add_row(row_content)
+    def _parse_field(self, col, sheet):
+
+        field_name_str = cell_str(sheet, self.FieldNameRow, col).strip()
+
+        if field_name_str:
+            tag_str = cell_str(sheet, self.TagRow, col).strip()
+
+            if not tag_str:
+                return [XlsParser.FieldState.Error, f'sheet {sheet.name} Tag at ({self.TagRow},{col}) '
+                                                    f'{tag_str} Tag is empty']
+
+            tag = Tag.from_str(tag_str)
+            if tag is None:
+                return [XlsParser.FieldState.Error, f'sheet {sheet.name} Tag at ({self.TagRow},{col}) '
+                                                    f'{tag_str} is invalid']
+
+            data_type_str = cell_str(sheet, self.DataTypeRow, col).strip()
+            data_type = DataType.parse(data_type_str)
+
+            if data_type is None:
+                return [XlsParser.FieldState.Error, f'sheet {sheet.name} Type at ({self.DataTypeRow},{col}), '
+                                                    f'{data_type_str} is invalid']
+
+            field = Field(tag, field_name_str, col, data_type, 0 == col)
+            return [XlsParser.FieldState.OK, field]
+        else:
+            return [XlsParser.FieldState.FieldTypeEmpty, 'Field Type is Empty']
 
     def _parse_body(self, sheet, fields):
-        pass
+        body = []
+        for row in range(self.ContentStartRow, sheet.nrows):
+            rs, body_row_or_err = self._parse_row(sheet, fields, row)
+            if rs:
+                body.append(body_row_or_err)
+            else:
+                return [False, f'sheet : {sheet.name}, {body_row_or_err}']
+
+        return [True, body]
+
+    @staticmethod
+    def _parse_row(sheet, fields, row):
+        body_row = []
+        primary = fields[0]
+
+        primary_str = cell_str(sheet, row, primary.sheet_col).strip()
+
+        check = True
+        if not primary_str:
+            check = False
+
+        rs, value_or_err = XlsParser._check_value(primary, primary_str, check)
+        if rs:
+            body_row.append(primary_str)
+        else:
+            return [False, f'{primary.field_name} at ({row},{primary.sheet_col}) value {primary_str} '
+                           f'is not {primary.data_type.to_client_csv_str()}']
+
+        for field in fields[1:]:
+            value_str = cell_str(sheet, row, field.sheet_col).strip()
+            rs, value_or_err = XlsParser._check_value(field, value_str, check)
+
+            if rs:
+                body_row.append(value_or_err)
+            else:
+                return [False, f'{field.field_name} at ({row},{field.sheet_col}) value {value_str} '
+                               f'is not {field.data_type.to_client_csv_str()}']
+
+        return [True, body_row]
+
+    @staticmethod
+    def _check_value(field, value_str, check):
+        if check:
+            checker = ElemAnalyzer.get_checker(field.data_type)
+            return [checker(value_str), value_str]
+        else:
+            return [True, value_str]
