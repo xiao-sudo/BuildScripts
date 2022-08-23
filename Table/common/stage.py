@@ -1,9 +1,12 @@
-import os.path
 import time
+import os
 
 from . import xls
 from .setting import TagFilterSetting
-from .table import Table, Tag, TableDataUtil
+from .table import Table, TableDataUtil
+from .log import info_log
+from .tag import Tag
+from .log import debug_log
 from multiprocessing import cpu_count
 from multiprocessing import Pool
 
@@ -21,6 +24,42 @@ class Stage:
 
     def execute(self, param):
         pass
+
+
+class SingleXlsStage(Stage):
+    def __init__(self, name):
+        super().__init__(name)
+
+    def execute(self, xls_path):
+        if os.path.exists(xls_path):
+            return [xls_path]
+        else:
+            debug_log(f'xls file {xls_path} is not exists')
+            return []
+
+
+class ParseSingleSheetStage(Stage):
+    def __init__(self, name, sheet_name):
+        super().__init__(name)
+        self.sheet_name = sheet_name
+
+    def execute(self, single_xls_list: list):
+        """
+        parse a xls sheet
+        :param single_xls_list: list only have single xls path
+        :return: parsed single sheet table list
+        """
+        if len(single_xls_list) > 0:
+            parser = xls.XlsParser()
+            xls_path = single_xls_list[0]
+            rs, table_or_err = parser.parse_one_sheet(xls_path, self.sheet_name)
+            if rs:
+                return [table_or_err]
+            else:
+                debug_log(f'parse single sheet failed, {table_or_err}')
+                return []
+        else:
+            return []
 
 
 class CollectXlsStage(Stage):
@@ -49,37 +88,32 @@ class ParseXlsStage(Stage):
         :return: all Tables
         """
         start_time = time.time()
-        self._multi_process_parse_xls_files(xls_list)
-        # self._single_thread_parse_xls_files(xls_list)
-        print(f'parse all xls elapse {time.time() - start_time} seconds')
-        return self._tables
+        parsed_tables = self._multi_process_parse_xls_files(xls_list)
+        info_log(f'parse all xls elapse {time.time() - start_time} seconds')
+        return parsed_tables
 
     def _multi_process_parse_xls_files(self, xls_list):
         thread_count = cpu_count()
 
         with Pool(thread_count) as pool:
-            result_tables = pool.map(self.parse_table, xls_list)
+            rs = pool.map(self.parse_one_xls, xls_list)
 
-        for tables in result_tables:
-            if tables:
-                self._tables.extend(tables)
+        parsed_tables = []
 
-    def _single_thread_parse_xls_files(self, xls_list):
-        parser = xls.XlsParser()
-        for xls_path in xls_list:
-            parser.parse(xls_path)
+        for one_xls_result in rs:
+            for sheet_result in one_xls_result:
+                rs, table_or_err = sheet_result
+                if rs:
+                    parsed_tables.append(table_or_err)
+                else:
+                    info_log(table_or_err)
 
-        self._tables = parser.tables
+        return parsed_tables
 
     @staticmethod
-    def parse_table(xls_file_path: str):
+    def parse_one_xls(xls_file_path: str) -> list:
         parser = xls.XlsParser()
-        parser.parse(xls_file_path)
-
-        if parser.tables:
-            return parser.tables
-        else:
-            return []
+        return parser.parse_one_xls(xls_file_path)
 
 
 class FilterStage(Stage):
@@ -105,17 +139,6 @@ class FilterStage(Stage):
         pass
 
 
-class CSVExportSetting:
-    def __init__(self, name: str, export_dir: str, target_tag, tag_filter: lambda target_tag, input_tag: True):
-        self.name = name
-        self.export_dir = export_dir
-        self.target_tag = target_tag
-        self.tag_filter = tag_filter
-
-    def filter_tag(self, tag):
-        return self.tag_filter(self.target_tag, tag)
-
-
 class CSVExportStage(Stage):
     def __init__(self, name: str, out_dir: str):
         """
@@ -127,9 +150,9 @@ class CSVExportStage(Stage):
 
     def execute(self, all_tables):
         for table in all_tables:
-            data = TableDataUtil.to_csv(table)
-            for row in data:
-                print(row)
+            TableDataUtil.export_csv(f'{self.out_dir}/{table.name}.csv', table)
+
+        return all_tables
 
 
 class GenProtoStage(Stage):
@@ -146,10 +169,16 @@ class GenProtoStage(Stage):
                     print(f'{field.data_type.to_client_csv_str()}')
 
 
-class PrintStage(Stage):
+class PrintTableStage(Stage):
     def execute(self, all_tables):
         for t in all_tables:
-            print(f'table : {t.xls} => {t.name}')
-            header = t.header
-            for field in header.get_fields():
-                print(field)
+            PrintTableStage._format_print_table(t)
+
+        return all_tables
+
+    @staticmethod
+    def _format_print_table(table: Table):
+        info_log(f'Table ({table.xls} => {table.name})')
+        csv_info = TableDataUtil.to_csv(table)
+        for row in csv_info:
+            info_log(f'\t{row}')
