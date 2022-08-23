@@ -1,5 +1,4 @@
 from . import stage
-from .table import Tag
 
 
 class Pipeline:
@@ -11,10 +10,10 @@ class Pipeline:
     def add_stage(self, one_stage: stage.Stage):
         self._Stages.append(one_stage)
 
-    def execute(self, xls_dir):
-        param = xls_dir
+    def execute(self, param):
+        next_parm = param
         for one_stage in self._Stages:
-            param = one_stage.execute(param)
+            next_parm = one_stage.execute(next_parm)
 
 
 def new_pipeline():
@@ -27,6 +26,24 @@ def new_pipeline():
     #     stage.CSVExportSetting('Server', './server', Tag.Server, _tag_compatible)
     # ]))
     # pipeline_instance.add_stage(stage.GenProtoStage('Proto Gen'))
+    return pipeline_instance
+
+
+def new_single_sheet_pipeline(sheet_name: str):
+    pipeline_instance = Pipeline('single sheet pipeline')
+    pipeline_instance.add_stage(stage.SingleXlsStage('single xls stage'))
+    pipeline_instance.add_stage(stage.ParseSingleSheetStage('Parse single sheet', sheet_name))
+    pipeline_instance.add_stage(stage.PrintTableStage('Print'))
+
+    return pipeline_instance
+
+
+def new_single_xls_pipeline():
+    pipeline_instance = Pipeline('Single Xls pipeline')
+    pipeline_instance.add_stage(stage.SingleXlsStage('single xls stage'))
+    pipeline_instance.add_stage(stage.ParseXlsStage('Parse xls list'))
+    pipeline_instance.add_stage(stage.PrintTableStage('Print'))
+
     return pipeline_instance
 
 
