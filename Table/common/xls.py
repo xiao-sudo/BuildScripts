@@ -11,6 +11,7 @@ from .setting import TagFilterSetting
 from .elem import ElemAnalyzer
 from .cell_util import cell_str, cell_xls_coord_str
 from .tag import Tag
+from .row import Row, RowSemantic
 
 from typing import List
 from typing import Dict
@@ -104,6 +105,7 @@ class XlsParser:
         # first col is primary field
         rs, primary_field_or_err = self._parse_field(0, sheet)
 
+        # primary column must have field name
         if rs is not XlsParser.FieldState.OK:
             return [False, f'primary field error, {primary_field_or_err}']
 
@@ -112,6 +114,7 @@ class XlsParser:
         for col in range(1, sheet.ncols):
             rs, field_or_err = self._parse_field(col, sheet)
 
+            # omit other column (not primary) without field name
             if rs is XlsParser.FieldState.OK:
                 header.add_field(field_or_err)
             elif rs is XlsParser.FieldState.Error:
@@ -146,7 +149,8 @@ class XlsParser:
             field = Field(tag, field_name_str, col, data_type, 0 == col)
             return [XlsParser.FieldState.OK, field]
         else:
-            return [XlsParser.FieldState.FieldTypeEmpty, 'Field Type is Empty']
+            return [XlsParser.FieldState.FieldTypeEmpty,
+                    f'Field Name at {cell_xls_coord_str(self.FieldNameRow, col)} is Empty']
 
     def _parse_body(self, sheet, fields):
         body = []
@@ -161,18 +165,19 @@ class XlsParser:
 
     @staticmethod
     def _parse_row(sheet, fields, row):
-        body_row = []
+        body_row = Row()
         primary = fields[0]
 
         primary_str = cell_str(sheet, row, primary.sheet_col).strip()
 
         check = True
         if not primary_str:
+            body_row.semantic = RowSemantic.DesignSpec
             check = False
 
         rs, value_or_err = XlsParser._check_value(primary, primary_str, check)
         if rs:
-            body_row.append(primary_str)
+            body_row.add_value(primary_str)
         else:
             return [False, f'{primary.field_name} at {cell_xls_coord_str(row, primary.sheet_col)} value {primary_str} '
                            f'is not {primary.data_type.to_client_csv_str()}']
@@ -182,7 +187,7 @@ class XlsParser:
             rs, value_or_err = XlsParser._check_value(field, value_str, check)
 
             if rs:
-                body_row.append(value_or_err)
+                body_row.add_value(value_or_err)
             else:
                 return [False, f'{field.field_name} at {cell_xls_coord_str(row, field.sheet_col)} value {value_str} '
                                f'is not {field.data_type.to_client_csv_str()}']

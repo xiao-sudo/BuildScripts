@@ -1,5 +1,6 @@
 import csv
 from .field import Field
+from .row import Row
 
 
 class Header:
@@ -33,7 +34,7 @@ class Table:
     def set_header(self, header: Header):
         self.header = header
 
-    def add_row(self, row: list):
+    def add_row(self, row: Row):
         self.body.append(row)
 
     def set_body(self, body: list):
@@ -45,7 +46,7 @@ class TableDataUtil:
     def to_csv(table: Table) -> list:
         csv_data = []
         csv_data.extend(TableDataUtil._header_csv(table.header))
-        csv_data.extend(TableDataUtil._row_csv(table))
+        csv_data.extend(TableDataUtil._body_csv(table))
         return csv_data
 
     @staticmethod
@@ -71,5 +72,9 @@ class TableDataUtil:
         return [names, types, tags]
 
     @staticmethod
-    def _row_csv(table: Table) -> list:
-        return table.body
+    def _body_csv(table: Table) -> list:
+        csv_body = []
+        for row in table.body:
+            csv_body.append(row.content)
+
+        return csv_body
