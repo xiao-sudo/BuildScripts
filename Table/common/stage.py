@@ -2,9 +2,10 @@ import time
 import os
 
 from . import xls
-from .table import TableDataUtil
+from .table import Header, Table, TableDataUtil
 from .log import info_log
 from .log import debug_log
+from .row import Row, RowSemantic
 from multiprocessing import cpu_count
 from multiprocessing import Pool
 
@@ -136,6 +137,69 @@ class CSVExportStage(Stage):
                 debug_log(table_or_err)
 
         return tables
+
+
+class TagFilterStage(Stage):
+    def __init__(self, name, target_tag, tag_filter=lambda target_tag, input_tag: True):
+        super().__init__(name)
+        self.target_tag = target_tag
+        self.tag_filter = tag_filter
+
+    def execute(self, all_tables):
+        filtered_tables = []
+        for tab in all_tables:
+            filtered_tab = self._filter_table(tab)
+            if filtered_tab:
+                filtered_tables.append(filtered_tab)
+
+        return filtered_tables
+
+    def _filter_table(self, source_tab):
+        filtered_fields = self._filter_header_fields(source_tab)
+        if len(filtered_fields):
+            filtered_table = Table(source_tab.name, source_tab.xls)
+
+            filtered_header = self._filter_header(filtered_fields, source_tab.header.name)
+            filtered_body = self._filter_body(filtered_fields, source_tab)
+
+            filtered_table.set_header(filtered_header)
+            filtered_table.set_body(filtered_body)
+
+            return filtered_table
+        else:
+            return None
+
+    def _filter_header_fields(self, table):
+        filtered_fields = []
+        for field in table.header.get_fields():
+            if self.tag_filter(self.target_tag, field.tag):
+                filtered_fields.append(field)
+
+        return filtered_fields
+
+    @staticmethod
+    def _filter_header(filtered_fields: list, name):
+        new_header = Header(name)
+        for field in filtered_fields:
+            new_header.add_field(field)
+
+        return new_header
+
+    @staticmethod
+    def _filter_body(filtered_fields: list, table: Table):
+        filtered_body = []
+        for row in table.body:
+            if RowSemantic.DesignSpec == row.semantic:
+                continue
+
+            filtered_row = Row()
+            for field in filtered_fields:
+                value = row.content[field.field_index]
+                filtered_row.add_value(value)
+
+            filtered_body.append(filtered_row)
+
+        return filtered_body
 
 
 class GenProtoStage(Stage):
