@@ -6,6 +6,7 @@ from .table import Header, Table, TableDataUtil
 from .log import info_log
 from .log import debug_log
 from .row import Row, RowSemantic
+from .proto_type_assembler import ProtoTypeAssembler
 from multiprocessing import cpu_count
 from multiprocessing import Pool
 
@@ -19,8 +20,8 @@ class Stage:
 
 
 class SingleXlsStage(Stage):
-    def __init__(self, name):
-        super().__init__(name)
+    def __init__(self):
+        super().__init__('SingleXls')
 
     def execute(self, xls_path):
         if os.path.exists(xls_path):
@@ -31,8 +32,8 @@ class SingleXlsStage(Stage):
 
 
 class ParseSingleSheetStage(Stage):
-    def __init__(self, name, sheet_name):
-        super().__init__(name)
+    def __init__(self, sheet_name):
+        super().__init__('ParseSingleXlsSheet')
         self.sheet_name = sheet_name
 
     def execute(self, single_xls_list: list):
@@ -55,8 +56,8 @@ class ParseSingleSheetStage(Stage):
 
 
 class CollectXlsStage(Stage):
-    def __init__(self, name, xls_file_pattern):
-        super().__init__(name)
+    def __init__(self, xls_file_pattern):
+        super().__init__('Collect Xls')
         self.xls_file_pattern = xls_file_pattern
 
     def execute(self, xls_dir):
@@ -69,8 +70,8 @@ class CollectXlsStage(Stage):
 
 
 class ParseXlsStage(Stage):
-    def __init__(self, name):
-        super().__init__(name)
+    def __init__(self):
+        super().__init__('ParseXlsArray')
         self._tables = []
 
     def execute(self, xls_list) -> list:
@@ -118,12 +119,12 @@ class ParseXlsStage(Stage):
 
 
 class CSVExportStage(Stage):
-    def __init__(self, name: str, out_dir: str):
+    def __init__(self, out_dir: str):
         """
-        Export csv with different settings
-        :param name:
+        Export csv to target dir
+        :param out_dir: target dir
         """
-        super().__init__(name)
+        super().__init__('CSVExport')
         self.out_dir = out_dir
 
     def execute(self, all_table_results):
@@ -140,8 +141,8 @@ class CSVExportStage(Stage):
 
 
 class TagFilterStage(Stage):
-    def __init__(self, name, target_tag, tag_filter=lambda target_tag, input_tag: True):
-        super().__init__(name)
+    def __init__(self, target_tag, tag_filter=lambda target_tag, input_tag: True):
+        super().__init__('TagFilter')
         self.target_tag = target_tag
         self.tag_filter = tag_filter
 
@@ -202,18 +203,45 @@ class TagFilterStage(Stage):
         return filtered_body
 
 
-class GenProtoStage(Stage):
-    def __init__(self, name):
-        super().__init__(name)
+class ParseProtoStage(Stage):
+    def __init__(self):
+        super().__init__('Parse Proto')
 
-    def execute(self, exported_tables):
-        for tag in exported_tables:
-            tables = exported_tables[tag]
-            for table in tables:
-                print(f'---{table.name}---')
-                header = table.header
-                for field in header.get_fields():
-                    print(f'{field.data_type.to_client_csv_str()}')
+    def execute(self, filtered_tables):
+        assembler = ProtoTypeAssembler()
+        for tab in filtered_tables:
+            header = tab.header
+            proto_body = []
+            proto_import_builtin = False
+            index = 1
+            for field in header.get_fields():
+                import_builtin, proto_field_str = assembler.assemble(field.data_type)
+                if import_builtin:
+                    proto_import_builtin = True
+                proto_body.append(f'\t{proto_field_str} {field.field_name} = {index};\n')
+                index += 1
+
+            import_text = ''
+            if proto_import_builtin:
+                import_text = 'import "BuiltinRepeatedMessage.proto";\n'
+
+            print(f'syntax = "proto2";\n{import_text}\nmessage {header.name}\n')
+            for proto_field in proto_body:
+                print(f'{proto_field}')
+            print('}')
+
+
+class GenProtoStage(Stage):
+    def __init__(self, pb_dir):
+        super().__init__('Gen Proto')
+        self.pb_dir = pb_dir
+
+    def execute(self, proto_gen_tables):
+        for table in proto_gen_tables:
+            print(f'---{table.name}---')
+            header = table.header
+            for field in header.get_fields():
+                print(f'{field.data_type.to_client_csv_str()}')
 
 
 def _format_print_table(table):
@@ -224,6 +252,9 @@ def _format_print_table(table):
 
 
 class PrintParsedResultTableStage(Stage):
+    def __init__(self):
+        super().__init__('PrintParsedResultTable')
+
     def execute(self, parsed_tables):
         for parsed_tab in parsed_tables:
             rs, tab_or_err = parsed_tab
@@ -236,6 +267,9 @@ class PrintParsedResultTableStage(Stage):
 
 
 class PrintTableStage(Stage):
+    def __init__(self):
+        super().__init__('PrintTable')
+
     def execute(self, all_tables):
         for t in all_tables:
             _format_print_table(t)
