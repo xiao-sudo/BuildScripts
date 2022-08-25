@@ -66,7 +66,7 @@ class TableDataUtil:
 
         for field in header.get_fields():
             names.append(field.field_name)
-            types.append(field.data_type.to_client_csv_str())
+            types.append(field.data_type.to_csv_str())
             tags.append(field.tag.to_str())
 
         return [names, types, tags]

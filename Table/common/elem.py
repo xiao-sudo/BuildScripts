@@ -1,8 +1,9 @@
 import re
 from enum import IntEnum
 
-from .converter import TextConverter, DefaultValueConverter, TextToValueConverter
+from .converter import TypeToCSVStr, TypeToProtoStr
 from .log import debug_log
+from .proto_type_literals import INT, SINT, FIXED, STR
 
 TAB_INT_IDENTIFIER = 'INT'
 TAB_STRING_IDENTIFIER = 'STRING'
@@ -12,9 +13,7 @@ TAB_2D_ARRAY_IDENTIFIER = '[][]'
 TAB_PRIMITIVE_IDENTIFIER = ''
 
 
-class ElemClass(TextConverter, DefaultValueConverter, TextToValueConverter):
-    def __str__(self):
-        return self.to_client_csv_str()
+class ElemClass(TypeToCSVStr, TypeToProtoStr):
 
     @staticmethod
     def to_int_identifier():
@@ -26,51 +25,19 @@ class ElemClass(TextConverter, DefaultValueConverter, TextToValueConverter):
 
 
 class IntElemClass(ElemClass):
-    def to_client_csv_str(self):
-        return ElemClass.to_int_identifier()
-
-    def to_server_csv_str(self):
+    def to_csv_str(self):
         return ElemClass.to_int_identifier()
 
     def to_proto_str(self):
-        return 'int32'
-
-    def default_value(self):
-        return ElemClass.zero_value()
-
-    def parse_text_to_value(self, text):
-        if '' == text:
-            return False, 'int Value is empty'
-        else:
-            rs = False
-            value_or_err = self.default_value()
-            try:
-                value_or_err = int(text)
-            except ValueError as err:
-                rs = False
-                value_or_err = err
-            finally:
-                return rs, value_or_err
+        return INT
 
 
 class StrElemClass(ElemClass):
-    def to_client_csv_str(self):
+    def to_csv_str(self):
         return TAB_STRING_IDENTIFIER
 
-    def to_server_csv_str(self):
-        return TAB_STRING_IDENTIFIER
-
-    def to_proto_str(self):
-        return 'string'
-
-    def default_value(self):
-        return ''
-
-    def parse_text_to_value(self, text: str):
-        if '' == text:
-            return False, 'string value is empty'
-        else:
-            return True, text
+    def to_proto_str(self) -> str:
+        return STR
 
 
 class ElemClassParser:
@@ -82,16 +49,12 @@ class ElemClassParser:
         }.get(elem_type_str, lambda: None)()
 
 
-class ElemOrganization(TextConverter):
-    def __str__(self):
-        return self.to_client_csv_str()
+class ElemOrganization(TypeToCSVStr, TypeToProtoStr):
+    pass
 
 
 class TabPrimitive(ElemOrganization):
-    def to_client_csv_str(self) -> str:
-        return ''
-
-    def to_server_csv_str(self) -> str:
+    def to_csv_str(self) -> str:
         return ''
 
     def to_proto_str(self) -> str:
@@ -99,25 +62,19 @@ class TabPrimitive(ElemOrganization):
 
 
 class TabArray(ElemOrganization):
-    def to_client_csv_str(self) -> str:
-        return '[]'
-
-    def to_server_csv_str(self) -> str:
+    def to_csv_str(self) -> str:
         return '[]'
 
     def to_proto_str(self) -> str:
-        return 'repeated'
+        return 'repeated '
 
 
 class Tab2DArray(ElemOrganization):
-    def to_client_csv_str(self) -> str:
-        return '[][]'
-
-    def to_server_csv_str(self) -> str:
+    def to_csv_str(self) -> str:
         return '[][]'
 
     def to_proto_str(self) -> str:
-        return 'repeated'
+        return 'repeated '
 
 
 class ElemOrganizationParser:

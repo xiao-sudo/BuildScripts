@@ -1,27 +1,18 @@
-from .converter import TextConverter
-from .elem import ElemClass, ElemOrganization, ElemClassParser, ElemOrganizationParser
+from .converter import TypeToCSVStr
+from .elem import ElemClass, ElemOrganization, ElemClassParser, ElemOrganizationParser, Tab2DArray
 import re
 
 
-class DataType(TextConverter):
+class DataType(TypeToCSVStr):
     def __init__(self, elem_type: ElemClass, organization: ElemOrganization):
         self.elem_type = elem_type
         self.organization = organization
 
     def __str__(self):
-        return self.to_client_csv_str()
+        return self.to_csv_str()
 
-    def to_client_csv_str(self) -> str:
-        return f'{self.elem_type.to_client_csv_str()}{self.organization.to_client_csv_str()}'
-
-    def to_server_csv_str(self) -> str:
-        return f'{self.elem_type.to_server_csv_str()}{self.organization.to_server_csv_str()}'
-
-    def to_proto_str(self) -> str:
-        return f'{self.organization.to_proto_str()} {self.elem_type.to_proto_str()}'
-
-    def check_text(self, text: str):
-        pass
+    def to_csv_str(self) -> str:
+        return f'{self.elem_type.to_csv_str()}{self.organization.to_csv_str()}'
 
     @staticmethod
     def parse(excel_raw_type_str):
