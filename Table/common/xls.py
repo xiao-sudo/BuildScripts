@@ -34,7 +34,7 @@ def collect_xls_files(src_dir, xls_patterns):
 
 
 def is_valid_xls_sheet(sheet_name):
-    return re.search("^[a-zA-Z]+=$", sheet_name)
+    return re.search("^[a-zA-Z]+$", sheet_name)
 
 
 class XlsParser:
