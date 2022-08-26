@@ -22,13 +22,16 @@ class ProtoTypeAssembler:
         return self.assemble_impl(data_type.elem_type, data_type.organization)
 
     def assemble_impl(self, elem_class: ElemClass, elem_organ: ElemOrganization):
-        import_builtin = False
+        import_proto = None
         if isinstance(elem_organ, Tab2DArray):
-            proto_field_str = f'{elem_organ.to_proto_str()}' \
-                              f'{self.builtin_repeated_message_names[elem_class.to_proto_str()]}'
 
-            import_builtin = True
+            builtin_type = self.builtin_repeated_message_names[elem_class.to_proto_str()]
+            proto_field_str = f'{elem_organ.to_proto_str()}' \
+                              f'{builtin_type}'
+
+            import_proto = f'{builtin_type}.proto'
+
         else:
             proto_field_str = f'{elem_organ.to_proto_str()}{elem_class.to_proto_str()}'
 
-        return [import_builtin, proto_field_str]
+        return [import_proto, proto_field_str]
