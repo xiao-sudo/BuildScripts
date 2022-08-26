@@ -204,31 +204,50 @@ class TagFilterStage(Stage):
 
 
 class ParseProtoStage(Stage):
-    def __init__(self):
+    def __init__(self, proto_dir):
         super().__init__('Parse Proto')
+        self.proto_dir = proto_dir
 
     def execute(self, filtered_tables):
         assembler = ProtoTypeAssembler()
         for tab in filtered_tables:
             header = tab.header
             proto_body = []
-            proto_import_builtin = False
             index = 1
+            import_proto_set = set()
             for field in header.get_fields():
-                import_builtin, proto_field_str = assembler.assemble(field.data_type)
-                if import_builtin:
-                    proto_import_builtin = True
+                import_proto, proto_field_str = assembler.assemble(field.data_type)
+
+                if import_proto and import_proto not in import_proto_set:
+                    import_proto_set.add(import_proto)
+
                 proto_body.append(f'\t{proto_field_str} {field.field_name} = {index};\n')
                 index += 1
 
             import_text = ''
-            if proto_import_builtin:
-                import_text = 'import "BuiltinRepeatedMessage.proto";\n'
+            for import_proto in import_proto_set:
+                import_text += f'import "base/{import_proto}";\n'
 
-            print(f'syntax = "proto2";\n{import_text}\nmessage {header.name}\n')
+            row_message = f'syntax = "proto3";\n{import_text}\nmessage Row_{header.name} {{\n'
             for proto_field in proto_body:
-                print(f'{proto_field}')
-            print('}')
+                row_message += f'{proto_field}'
+            row_message += '}'
+
+            tab_message = f'message Tab_{header.name} {{\n'
+            tab_message += f'\trepeated Row_{header.name} rows = 1;\n}}'
+
+            with open(f'{self.proto_dir}/{header.name}.proto', 'w') as proto_file:
+                proto_file.write(f'{row_message}\n\n{tab_message}')
+
+        return filtered_tables
+
+
+class ProtoPythonGenStage(Stage):
+    def __init__(self):
+        super(ProtoPythonGenStage, self).__init__('ProtoPythonGen')
+
+    def execute(self, filtered_tables):
+        return filtered_tables
 
 
 class GenProtoStage(Stage):
