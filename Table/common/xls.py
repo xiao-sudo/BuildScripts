@@ -108,7 +108,9 @@ class XlsParser:
         # primary column must have field name
         if rs is not XlsParser.FieldState.OK:
             return [False, f'primary field error, {primary_field_or_err}']
-
+        field_index = 0
+        primary_field_or_err.update_field_index(field_index)
+        field_index += 1
         header.add_field(primary_field_or_err)
 
         for col in range(1, sheet.ncols):
@@ -116,6 +118,8 @@ class XlsParser:
 
             # omit other column (not primary) without field name
             if rs is XlsParser.FieldState.OK:
+                field_or_err.update_field_index(field_index)
+                field_index += 1
                 header.add_field(field_or_err)
             elif rs is XlsParser.FieldState.Error:
                 return [False, field_or_err]
