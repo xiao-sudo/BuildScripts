@@ -204,6 +204,17 @@ class TagFilterStage(Stage):
 
 
 class ParseProtoStage(Stage):
+    proto_template = 'syntax = "proto3";\n' \
+                     '{}' \
+                     '\n' \
+                     'message Row_{} {{\n' \
+                     '{}' \
+                     '}}\n' \
+                     '\n' \
+                     'message Tab_{} {{\n' \
+                     '\trepeated Row_{} rows = 1;\n' \
+                     '}}\n'
+
     def __init__(self, proto_dir):
         super().__init__('Parse Proto')
         self.proto_dir = proto_dir
@@ -228,25 +239,39 @@ class ParseProtoStage(Stage):
             for import_proto in import_proto_set:
                 import_text += f'import "base/{import_proto}";\n'
 
-            row_message = f'syntax = "proto3";\n{import_text}\nmessage Row_{header.name} {{\n'
+            row_message = ''
             for proto_field in proto_body:
                 row_message += f'{proto_field}'
-            row_message += '}'
 
-            tab_message = f'message Tab_{header.name} {{\n'
-            tab_message += f'\trepeated Row_{header.name} rows = 1;\n}}'
+            print(self._format_proto(header.name, import_text, row_message))
 
             with open(f'{self.proto_dir}/{header.name}.proto', 'w') as proto_file:
-                proto_file.write(f'{row_message}\n\n{tab_message}')
+                proto_file.write(self._format_proto(header.name, import_text, row_message))
 
         return filtered_tables
 
+    def _format_proto(self, tab_name, import_proto, fields):
+        return self.proto_template.format(import_proto, tab_name, fields, tab_name, tab_name)
+
 
 class ProtoPythonGenStage(Stage):
-    def __init__(self):
+    def __init__(self, proto_dir, proto_exe, proto_python_dir, pb_dir):
         super(ProtoPythonGenStage, self).__init__('ProtoPythonGen')
+        self.proto_dir = proto_dir
+        self.proto_exe = proto_exe
+        self.proto_python_dir = proto_python_dir
+        self.pb_dir = pb_dir
 
     def execute(self, filtered_tables):
+        for tab in filtered_tables:
+            proto_file = f'{self.proto_dir}/{tab.header.name}.proto'
+            if os.path.exists(proto_file):
+                cmd = f'{self.proto_exe} {proto_file} --proto_path={self.proto_dir} ' \
+                      f'--python_out={self.proto_python_dir} ' \
+                      f'--include_imports --descriptor_set_out={self.pb_dir}/{tab.header.name}.pb'
+                os.system(cmd)
+            else:
+                debug_log(f'{proto_file} not exists')
         return filtered_tables
 
 
