@@ -1,14 +1,19 @@
 import time
 import os
+import sys
 
 from . import xls
 from .table import Header, Table, TableDataUtil
 from .log import info_log
 from .log import debug_log
 from .row import Row, RowSemantic
+from .elem import TabPrimitive, TabArray, StrElemClass
 from .proto_type_assembler import ProtoTypeAssembler
 from multiprocessing import cpu_count
 from multiprocessing import Pool
+
+
+tab_proto_prefix = 'Tab_'
 
 
 class Stage:
@@ -225,28 +230,27 @@ class ParseProtoStage(Stage):
             header = tab.header
             proto_body = []
             index = 1
-            import_proto_set = set()
+            import_message_set = set()
             for field in header.get_fields():
-                import_proto, proto_field_str = assembler.assemble(field.data_type)
+                import_message_type, proto_field_str = assembler.assemble(field.data_type)
 
-                if import_proto and import_proto not in import_proto_set:
-                    import_proto_set.add(import_proto)
+                if import_message_type and import_message_type not in import_message_set:
+                    import_message_set.add(import_message_type)
 
                 proto_body.append(f'\t{proto_field_str} {field.field_name} = {index};\n')
                 index += 1
 
-            import_text = ''
-            for import_proto in import_proto_set:
-                import_text += f'import "base/{import_proto}";\n'
+            import_message_text = '\n'
+            for import_message_type in import_message_set:
+                message = assembler.builtin_repeated_messages[import_message_type]
+                import_message_text += f'{message}\n'
 
             row_message = ''
             for proto_field in proto_body:
                 row_message += f'{proto_field}'
 
-            print(self._format_proto(header.name, import_text, row_message))
-
-            with open(f'{self.proto_dir}/{header.name}.proto', 'w') as proto_file:
-                proto_file.write(self._format_proto(header.name, import_text, row_message))
+            with open(f'{self.proto_dir}/{tab_proto_prefix}{header.name}.proto', 'w') as proto_file:
+                proto_file.write(self._format_proto(header.name, import_message_text, row_message))
 
         return filtered_tables
 
@@ -264,15 +268,76 @@ class ProtoPythonGenStage(Stage):
 
     def execute(self, filtered_tables):
         for tab in filtered_tables:
-            proto_file = f'{self.proto_dir}/{tab.header.name}.proto'
+            proto_file = f'{self.proto_dir}/{tab_proto_prefix}{tab.header.name}.proto'
             if os.path.exists(proto_file):
                 cmd = f'{self.proto_exe} {proto_file} --proto_path={self.proto_dir} ' \
                       f'--python_out={self.proto_python_dir} ' \
-                      f'--include_imports --descriptor_set_out={self.pb_dir}/{tab.header.name}.pb'
+                      f'--descriptor_set_out={self.pb_dir}/{tab_proto_prefix}{tab.header.name}.pb'
+
                 os.system(cmd)
             else:
                 debug_log(f'{proto_file} not exists')
         return filtered_tables
+
+
+class ParseBytesStage(Stage):
+    def __init__(self, bytes_dir, proto_python_dir):
+        super(ParseBytesStage, self).__init__('ParseProtoBytes')
+        self.bytes_dir = bytes_dir
+        self.proto_python_dir = proto_python_dir
+
+    def execute(self, filtered_tables):
+        # insert import path
+        sys.path.insert(0, self.proto_python_dir)
+        for tab in filtered_tables:
+            header = tab.header
+            # import protobuf py
+            module_name = f'{tab_proto_prefix}{header.name}_pb2'
+            module = __import__(module_name, locals(), globals())
+
+            rs = {}
+            cmd = f'{header.name}_message = module.{tab_proto_prefix}{header.name}()\n' \
+                  f'rows = {header.name}_message.rows\n' \
+                  f'self._fill_table_data(rows, tab, header)\n' \
+                  f'rs[\'msg\'] = {header.name}_message\n'
+
+            try:
+                exec(cmd)
+                with open(f'{self.bytes_dir}/{header.name}.bytes', 'wb') as bytes_file:
+                    bytes_file.write(rs['msg'].SerializeToString())
+
+            except Exception as err:
+                debug_log(f'Xls : {tab.xls}, sheet : {tab.name}, {str(err)}')
+
+    @staticmethod
+    def _import(module):
+        return __import__(module, locals(), globals())
+
+    @staticmethod
+    def _fill_table_data(rows, table: Table, header: Header):
+        for tab_row in table.body:
+            # for exec cmd
+            data_row = rows.add()
+            content = tab_row.content
+            index = 0
+            for field in header.get_fields():
+                if isinstance(field.data_type.organization, TabPrimitive):
+                    if isinstance(field.data_type.elem_type, StrElemClass):
+                        cmd = f'data_row.{field.field_name} = "{content[index]}"\n'
+                    else:
+                        cmd = f'data_row.{field.field_name} = {content[index]}\n'
+                elif isinstance(field.data_type.organization, TabArray):
+                    cmd = f'data_row.{field.field_name}.extend({content[index]})\n'
+                else:
+                    arr_2d = eval(content[index])
+                    cmd = ''
+                    for arr in arr_2d:
+                        cmd += f'arr_2d_row = data_row.{field.field_name}.add()\n' \
+                               f'arr_2d_row.arr_row.extend({arr})\n'
+
+                index += 1
+                # print(cmd)
+                exec(cmd)
 
 
 class GenProtoStage(Stage):
