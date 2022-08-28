@@ -7,15 +7,12 @@ class Header:
     def __init__(self, name):
         self._fields = []
         self.name = name
-        self.curr_index = 0
 
     def primary(self):
         return self._fields[0]
 
     def add_field(self, field: Field):
-        field.update_field_index(self.curr_index)
         self._fields.append(field)
-        self.curr_index += 1
 
     def get_fields(self):
         return self._fields
