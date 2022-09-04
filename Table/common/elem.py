@@ -3,7 +3,7 @@ from enum import IntEnum
 
 from .converter import TypeToCSVStr, TypeToProtoStr
 from .log import debug_log
-from .proto_type_literals import INT, SINT, FIXED, STR
+from .proto_type_literals import INT, STR
 
 TAB_INT_IDENTIFIER = 'INT'
 TAB_STRING_IDENTIFIER = 'STRING'
@@ -88,12 +88,16 @@ class ElemOrganizationParser:
 
 
 class ElemAnalyzer:
+    EmptyStrHolder = 'Nan'
+
     # +-0 | +-[1-9]\d*
     IntPattern = r'[+-]?(0|[1-9]\d*)'
     # [(Int(,Int)*)?]
     IntArrayPattern = fr'\[\s*(\s*{IntPattern}\s*(,\s*{IntPattern}\s*)*\s*)?]'
-    # [()]
+    # [(IntArray(,IntArray)*)?]
     Int2DArrayPattern = fr'\[(\s*{IntArrayPattern}\s*(,\s*{IntArrayPattern}\s*)*\s*)?]'
+    # separate array, use , between ] and [
+    ArraySepPattern = r'(?<=\])\s*,\s*(?=\[)'
     QuotedStr = r'\".*"'
     # [(quoted_str(,quoted_str)*)*]
     QuotedStrArrayPattern = rf'\[\s*(\s*{QuotedStr}\s*(,\s*{QuotedStr})*\s*)?]'
@@ -102,49 +106,176 @@ class ElemAnalyzer:
     QuotedStrSepPattern = r"(?<=\")\s*,\s*(?=\")"
 
     @staticmethod
-    def is_int_array(text: str):
+    def parse_int_array(text: str):
         m = re.match(f'^{ElemAnalyzer.IntArrayPattern}$', text)
-        return m is not None
+        if m is not None:
+            rs, parsed_values_or_err = ElemAnalyzer._parse_int_array_impl(m.group(1))
+            if rs:
+                return [True, text, parsed_values_or_err]
+            else:
+                return [False, parsed_values_or_err, '']
+        else:
+            return [False, f'{text} is not int array', '']
 
     @staticmethod
-    def is_str_array(text: str):
+    def _parse_int_array_impl(text: str):
+        # empty array
+        if text is None:
+            return [True, []]
+
+        segments = text.split(',')
+        ints = []
+        for seg in segments:
+            rs, int_or_err = ElemAnalyzer._parse_int_impl(seg)
+            if rs:
+                ints.append(int_or_err)
+            else:
+                return [False, f'{int_or_err} in {text}']
+
+        return [True, ints]
+
+    @staticmethod
+    def parse_str_array(text: str):
         m = re.match(f'^{ElemAnalyzer.QuotedStrArrayPattern}$', text)
-        return m is not None
+        if m is not None:
+            rs, parsed_values_or_err = ElemAnalyzer._parse_str_array_impl(m.group(1))
+            if rs:
+                return [True, text, parsed_values_or_err]
+            else:
+                return [False, parsed_values_or_err, '']
+        else:
+            return [False, f'{text} is not string array', '']
 
     @staticmethod
-    def is_int(text: str):
+    def _parse_str_array_impl(text: str):
+        if text is None:
+            return [True, []]
+
+        segments = re.split(ElemAnalyzer.QuotedStrSepPattern, text)
+        parsed_values = []
+        for seg in segments:
+            rs, ori_text_or_err, parsed_text = ElemAnalyzer._parse_quoted_str(seg)
+            if rs:
+                parsed_values.append(parsed_text)
+            else:
+                return [False, f'{ori_text_or_err} in {text}']
+
+        return [True, parsed_values]
+
+    @staticmethod
+    def _parse_quoted_str(text: str):
+        m = re.match(rf'^"(.*)"$', text.strip())
+        if m is not None:
+            rs, text, parsed_str = ElemAnalyzer.parse_str(m.group(1))
+            if rs:
+                return [True, text, parsed_str]
+            else:
+                return [False, text, '']
+
+        return [False, f'{text} is not quoted str', '']
+
+    @staticmethod
+    def parse_int(text: str):
         m = re.match(rf'^{ElemAnalyzer.IntPattern}$', text)
-        return m is not None
+        if m is not None:
+            rs, int_or_err = ElemAnalyzer._parse_int_impl(text)
+            if rs:
+                return [True, text, int_or_err]
+            else:
+                return [False, int_or_err, '']
+        else:
+            return [False, f'{text} can not parse to int', '']
 
     @staticmethod
-    def is_int_2d_array(text: str):
+    def _parse_int_impl(text: str):
+        try:
+            int_value = int(text)
+            return [True, int_value]
+        except ValueError as err:
+            return [False, f'{text} to int error, {err}']
+
+    @staticmethod
+    def parse_str(text: str):
+        if re.match(r'^\s*$', text):
+            return [False, f'{text} is empty string, use Nan', '']
+
+        value_text = str(text)
+        if ElemAnalyzer.EmptyStrHolder == text.strip():
+            value_text = ''
+
+        return [True, text, value_text]
+
+    @staticmethod
+    def parse_int_2d_array(text: str):
         m = re.match(rf'^{ElemAnalyzer.Int2DArrayPattern}$', text)
-        return m is not None
+        if m is not None:
+            rs, parsed_ints_or_err = ElemAnalyzer._parse_int_2d_array_impl(m.group(1))
+            if rs:
+                return [True, text, parsed_ints_or_err]
+            else:
+                return [False, parsed_ints_or_err, '']
+
+        return [False, f'{text} is not int 2d array', '']
 
     @staticmethod
-    def is_str_2d_array(text: str):
+    def _parse_int_2d_array_impl(text: str):
+        if text is None:
+            return [True, []]
+
+        arrays = re.split(ElemAnalyzer.ArraySepPattern, text)
+        parsed_2d_arr = []
+        for arr in arrays:
+            rs, csv_arr_or_err, parsed_arr = ElemAnalyzer.parse_int_array(arr)
+            if rs:
+                parsed_2d_arr.append(parsed_arr)
+            else:
+                return [False, csv_arr_or_err]
+
+        return [True, parsed_2d_arr]
+
+    @staticmethod
+    def parse_str_2d_array(text: str):
         m = re.match(rf'^{ElemAnalyzer.QuotedStr2DArrayPattern}$', text)
-        return m is not None
-
-    @staticmethod
-    def pass_to_elem_checker(text: str):
-        return [True, [text]]
-
-    @staticmethod
-    def int_array_disassembler(text: str):
-        m = re.match(ElemAnalyzer.IntArrayPattern, text)
         if m is not None:
-            return [True, m.group(1).split(',')]
-        else:
-            return [False, f'{text} can not parsed to int[]']
+            rs, parsed_str_2d_arr_or_err = ElemAnalyzer._parse_str_2d_array_impl(m.group(1))
+            if rs:
+                return [True, text, parsed_str_2d_arr_or_err]
+            else:
+                return [False, parsed_str_2d_arr_or_err, '']
+
+        return [False, f'{text} is not str 2d array', '']
 
     @staticmethod
-    def str_array_disassembler(text: str):
-        m = re.match(ElemAnalyzer.QuotedStrArrayPattern, text)
-        if m is not None:
-            return [True, re.split("", m.group(1))]
-        else:
-            return [False, f'{text} can not parsed to string[]']
+    def _parse_str_2d_array_impl(text: str):
+        if text is None:
+            return [True, []]
+
+        str_arrays = re.split(ElemAnalyzer.ArraySepPattern, text)
+        parsed_2d_str_arr = []
+        for str_array in str_arrays:
+            rs, csv_arr_or_err, parsed_str_arr = ElemAnalyzer.parse_str_array(str_array)
+            if rs:
+                parsed_2d_str_arr.append(parsed_str_arr)
+            else:
+                return [False, csv_arr_or_err]
+
+        return [True, parsed_2d_str_arr]
+
+    # @staticmethod
+    # def int_array_disassembler(text: str):
+    #     m = re.match(ElemAnalyzer.IntArrayPattern, text)
+    #     if m is not None:
+    #         return [True, m.group(1).split(',')]
+    #     else:
+    #         return [False, f'{text} can not parsed to int[]']
+    #
+    # @staticmethod
+    # def str_array_disassembler(text: str):
+    #     m = re.match(ElemAnalyzer.QuotedStrArrayPattern, text)
+    #     if m is not None:
+    #         return [True, re.split("", m.group(1))]
+    #     else:
+    #         return [False, f'{text} can not parsed to string[]']
 
     class ElemType(IntEnum):
         Int = 0
@@ -156,18 +287,12 @@ class ElemAnalyzer:
 
     Tools = {
         'checker': {
-            ElemType.Int: lambda text: ElemAnalyzer.is_int(text),
-            ElemType.Str: lambda text: True,
-            ElemType.IntArray: lambda text: ElemAnalyzer.is_int_array(text),
-            ElemType.StrArray: lambda text: ElemAnalyzer.is_str_array(text),
-            ElemType.Int2DArray: lambda text: ElemAnalyzer.is_int_2d_array(text),
-            ElemType.Str2DArray: lambda text: ElemAnalyzer.is_str_2d_array(text)
-        },
-        'disassembler': {
-            ElemType.Int: pass_to_elem_checker,
-            ElemType.Str: pass_to_elem_checker,
-            ElemType.IntArray: int_array_disassembler,
-            ElemType.StrArray: str_array_disassembler
+            ElemType.Int: lambda text: ElemAnalyzer.parse_int(text),
+            ElemType.Str: lambda text: ElemAnalyzer.parse_str(text),
+            ElemType.IntArray: lambda text: ElemAnalyzer.parse_int_array(text),
+            ElemType.StrArray: lambda text: ElemAnalyzer.parse_str_array(text),
+            ElemType.Int2DArray: lambda text: ElemAnalyzer.parse_int_2d_array(text),
+            ElemType.Str2DArray: lambda text: ElemAnalyzer.parse_str_2d_array(text)
         }
     }
 
