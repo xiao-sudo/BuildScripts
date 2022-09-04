@@ -179,29 +179,43 @@ class XlsParser:
             body_row.semantic = RowSemantic.DesignSpec
             check = False
 
-        rs, value_or_err = XlsParser._check_value(primary, primary_str, check)
+        rs, csv_text_or_err, parsed_value = XlsParser._check_value(primary, primary_str, check)
+
         if rs:
-            body_row.add_value(primary_str)
+            body_row.add_csv(csv_text_or_err)
+            body_row.add_value(parsed_value)
         else:
             return [False, f'{primary.field_name} at {cell_xls_coord_str(row, primary.sheet_col)} value {primary_str} '
-                           f'is not {primary.data_type.to_client_csv_str()}']
+                           f'is not {primary.data_type.to_csv_str()}']
 
         for field in fields[1:]:
             value_str = cell_str(sheet, row, field.sheet_col).strip()
-            rs, value_or_err = XlsParser._check_value(field, value_str, check)
+            rs, csv_text_or_err, parsed_value = XlsParser._check_value(field, value_str, check)
 
             if rs:
-                body_row.add_value(value_or_err)
+                body_row.add_csv(csv_text_or_err)
+                body_row.add_value(parsed_value)
             else:
                 return [False, f'{field.field_name} at {cell_xls_coord_str(row, field.sheet_col)} value {value_str} '
-                               f'is not {field.data_type.to_client_csv_str()}']
+                               f'is not {field.data_type.to_csv_str()}, because {csv_text_or_err}']
 
         return [True, body_row]
 
     @staticmethod
     def _check_value(field, value_str, check):
+        """
+        parse value by field setting
+        :param field:
+        :param value_str:
+        :param check:
+        :return: [bool, text_for_csv, actual_values]
+        """
         if check:
             checker = ElemAnalyzer.get_checker(field.data_type)
-            return [checker(value_str), value_str]
+            try:
+                # (Bool, text_for_csv, actual_values)
+                return checker(value_str)
+            except Exception as err:
+                return [False, f'check {value_str} exception {err}']
         else:
-            return [True, value_str]
+            return [True, value_str, '']
