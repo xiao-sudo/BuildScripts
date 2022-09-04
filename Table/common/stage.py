@@ -1,17 +1,16 @@
-import time
 import os
 import sys
+import time
+from multiprocessing import Pool
+from multiprocessing import cpu_count
 
 from . import xls
-from .table import Header, Table, TableDataUtil
-from .log import info_log
-from .log import debug_log
-from .row import Row, RowSemantic
 from .elem import TabPrimitive, TabArray, StrElemClass
+from .log import debug_log
+from .log import info_log
 from .proto_type_assembler import ProtoTypeAssembler
-from multiprocessing import cpu_count
-from multiprocessing import Pool
-
+from .row import Row, RowSemantic
+from .table import Header, Table, TableDataUtil
 
 tab_proto_prefix = 'Tab_'
 
@@ -200,8 +199,10 @@ class TagFilterStage(Stage):
 
             filtered_row = Row()
             for field in filtered_fields:
-                value = row.content[field.field_index]
-                filtered_row.add_value(value)
+                csv_value = row.content[field.field_index]
+                parsed_value = row.values[field.field_index]
+                filtered_row.add_csv(csv_value)
+                filtered_row.add_value(parsed_value)
 
             filtered_body.append(filtered_row)
 
@@ -318,25 +319,25 @@ class ParseBytesStage(Stage):
         for tab_row in table.body:
             # for exec cmd
             data_row = rows.add()
-            content = tab_row.content
+            # content = tab_row.content
+            values = tab_row.values
             index = 0
             for field in header.get_fields():
                 if isinstance(field.data_type.organization, TabPrimitive):
                     if isinstance(field.data_type.elem_type, StrElemClass):
-                        cmd = f'data_row.{field.field_name} = "{content[index]}"\n'
-                    else:
-                        cmd = f'data_row.{field.field_name} = {content[index]}\n'
+                        cmd = f'data_row.{field.field_name} = "{values[index]}"\n'
+                    else:  # int
+                        cmd = f'data_row.{field.field_name} = {values[index]}\n'
                 elif isinstance(field.data_type.organization, TabArray):
-                    cmd = f'data_row.{field.field_name}.extend({content[index]})\n'
+                    cmd = f'data_row.{field.field_name}.extend({values[index]})\n'
                 else:
-                    arr_2d = eval(content[index])
                     cmd = ''
+                    arr_2d = values[index]
                     for arr in arr_2d:
                         cmd += f'arr_2d_row = data_row.{field.field_name}.add()\n' \
                                f'arr_2d_row.arr_row.extend({arr})\n'
 
                 index += 1
-                # print(cmd)
                 exec(cmd)
 
 
